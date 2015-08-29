@@ -1745,7 +1745,7 @@ bool blockchain_storage::handle_block_to_main_chain(const block& bl, const crypt
   {
     size_t h = m_blocks.size()-PRUNING_DEPTH;
     LOG_PRINT_L1("Pruning block " << h);
-    CHECK_AND_ASSERT_MES2(prune_stored_block(h),"Warning: block pruning faild at height " << m_blocks.size());
+    CHECK_AND_ASSERT_MES2(prune_stored_block(h),"Warning: block pruning failed at height " << m_blocks.size());
   }
 
   m_blocks.push_back(bei);
