@@ -95,8 +95,8 @@ namespace cryptonote
     blockchain_storage(tx_memory_pool& tx_pool):m_tx_pool(tx_pool), m_current_block_cumul_sz_limit(0), m_is_in_checkpoint_zone(false), m_is_blockchain_storing(false)
     {};
 
-    bool init() { return init(tools::get_default_data_dir()); }
-    bool init(const std::string& config_folder);
+    //    bool init() { return init(tools::get_default_data_dir()); }
+    bool init(const std::string& config_folder, bool pruning_enabled);
     bool deinit();
 
     void set_checkpoints(checkpoints&& chk_pts) { m_checkpoints = chk_pts; }
@@ -135,7 +135,7 @@ namespace cryptonote
     bool find_blockchain_supplement(const std::list<crypto::hash>& qblock_ids, NOTIFY_RESPONSE_CHAIN_ENTRY::request& resp);
     bool find_blockchain_supplement(const std::list<crypto::hash>& qblock_ids, uint64_t& starter_offset);
     bool find_blockchain_supplement(const uint64_t req_start_block, const std::list<crypto::hash>& qblock_ids, std::list<std::pair<block, std::list<transaction> > >& blocks, uint64_t& total_height, uint64_t& start_height, size_t max_count);
-    bool handle_get_objects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NOTIFY_RESPONSE_GET_OBJECTS::request& rsp);
+    bool handle_get_objects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NOTIFY_RESPONSE_GET_OBJECTS::request& rsp, bool& pruned);
     bool handle_get_objects(const COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::request& req, COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::response& res);
     bool get_random_outs_for_amounts(const COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::request& req, COMMAND_RPC_GET_RANDOM_OUTPUTS_FOR_AMOUNTS::response& res);
     bool get_backward_blocks_sizes(size_t from_height, std::vector<size_t>& sz, size_t count);
@@ -221,6 +221,7 @@ namespace cryptonote
     outputs_container m_outputs;
 
     std::string m_config_folder;
+    bool m_pruning_enabled;
     checkpoints m_checkpoints;
     std::atomic<bool> m_is_in_checkpoint_zone;
     std::atomic<bool> m_is_blockchain_storing;
@@ -230,7 +231,9 @@ namespace cryptonote
     bool purge_block_data_from_blockchain(const block& b, size_t processed_tx_count);
     bool purge_transaction_from_blockchain(const crypto::hash& tx_id);
     bool purge_transaction_keyimages_from_blockchain(const transaction& tx, bool strict_check);
-
+    bool is_block_pruned(const block& bl);
+    bool is_block_prunable(const block& bl);
+    bool prune_stored_block(uint64_t bl_height);
     bool handle_block_to_main_chain(const block& bl, block_verification_context& bvc);
     bool handle_block_to_main_chain(const block& bl, const crypto::hash& id, block_verification_context& bvc);
     bool handle_alternative_block(const block& b, const crypto::hash& id, block_verification_context& bvc);
@@ -272,6 +275,26 @@ namespace cryptonote
     ar & m_blocks;
     ar & m_blocks_index;
     ar & m_transactions;
+    if (archive_t::is_loading::value && m_pruning_enabled && m_blocks.size() > PRUNING_DEPTH) 
+    {
+      size_t pruned_count = 0;
+      for (size_t i=0; i<m_blocks.size()-PRUNING_DEPTH; i++) 
+      {
+	if (is_block_prunable(m_blocks[i].bl))
+	{
+	  if (pruned_count == 0)
+	  {
+	    LOG_PRINT_L0("Pruning stored blocks...");
+	  }
+	  prune_stored_block(i);
+	  pruned_count++;
+	}
+      }
+      if (pruned_count > 0)
+      {
+	LOG_PRINT_L0("Pruned " << pruned_count << " blocks (save blockchain and restart to minimize memory usage)");
+      }
+    } 
     ar & m_spent_keys;
     ar & m_alternative_chains;
     if (version < 13)

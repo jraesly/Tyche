@@ -96,9 +96,14 @@ bool wallet2::get_seed(std::string& electrum_words)
   return memcmp(second.data,get_account().get_keys().m_view_secret_key.data, sizeof(crypto::secret_key)) == 0;
 }
 //----------------------------------------------------------------------------------------------------
-void wallet2::process_new_transaction(const cryptonote::transaction& tx, uint64_t height)
+void wallet2::process_new_transaction(const cryptonote::transaction& tx_in, const crypto::hash& txid, uint64_t height)
 {
-  process_unconfirmed(tx);
+
+  std::unique_ptr<const cryptonote::transaction> unconf_tx = process_unconfirmed(txid);
+
+  // if a matching unconfirmed tranasction was found, use that in place of the one from the blockchain because the blockchain may have been pruned
+  const cryptonote::transaction& tx = unconf_tx ? *unconf_tx : tx_in;
+
   std::vector<size_t> outs;
   uint64_t tx_money_got_in_outs = 0;
 
@@ -106,15 +111,15 @@ void wallet2::process_new_transaction(const cryptonote::transaction& tx, uint64_
   if(!parse_tx_extra(tx.extra, tx_extra_fields))
   {
     // Extra may only be partially parsed, it's OK if tx_extra_fields contains public key
-    LOG_PRINT_L0("Transaction extra has unsupported format: " << get_transaction_hash(tx));
+    LOG_PRINT_L0("Transaction extra has unsupported format: " << txid);
   }
 
   tx_extra_pub_key pub_key_field;
   if(!find_tx_extra_field_by_type(tx_extra_fields, pub_key_field))
   {
-    LOG_PRINT_L0("Public key wasn't found in the transaction extra. Skipping transaction " << get_transaction_hash(tx));
+    LOG_PRINT_L0("Public key wasn't found in the transaction extra. Skipping transaction " << txid);
     if(0 != m_callback)
-      m_callback->on_skip_transaction(height, tx);
+      m_callback->on_skip_transaction(height, tx, txid);
     return;
   }
 
@@ -128,7 +133,7 @@ void wallet2::process_new_transaction(const cryptonote::transaction& tx, uint64_
     //usually we have only one transfer for user in transaction
     cryptonote::COMMAND_RPC_GET_TX_GLOBAL_OUTPUTS_INDEXES::request req = AUTO_VAL_INIT(req);
     cryptonote::COMMAND_RPC_GET_TX_GLOBAL_OUTPUTS_INDEXES::response res = AUTO_VAL_INIT(res);
-    req.txid = get_transaction_hash(tx);
+    req.txid = txid;
     bool r = net_utils::invoke_http_bin_remote_command2(m_daemon_address + "/get_o_indexes.bin", req, res, m_http_client, WALLET_RCP_CONNECTION_TIMEOUT);
     THROW_WALLET_EXCEPTION_IF(!r, error::no_connection_to_daemon, "get_o_indexes.bin");
     THROW_WALLET_EXCEPTION_IF(res.status == CORE_RPC_STATUS_BUSY, error::daemon_busy, "get_o_indexes.bin");
@@ -155,9 +160,9 @@ void wallet2::process_new_transaction(const cryptonote::transaction& tx, uint64_
         error::wallet_internal_error, "key_image generated ephemeral public key not matched with output_key");
 
       m_key_images[td.m_key_image] = m_transfers.size()-1;
-      LOG_PRINT_L0("Received money: " << print_money(td.amount()) << ", with tx: " << get_transaction_hash(tx));
+      LOG_PRINT_L0("Received money: " << print_money(td.amount()) << ", with tx: " << txid);
       if (0 != m_callback)
-        m_callback->on_money_received(height, td.m_tx, td.m_internal_output_index);
+        m_callback->on_money_received(height, td.m_tx, txid, td.m_internal_output_index);
     }
   }
 
@@ -170,12 +175,12 @@ void wallet2::process_new_transaction(const cryptonote::transaction& tx, uint64_
     auto it = m_key_images.find(boost::get<cryptonote::txin_to_key>(in).k_image);
     if(it != m_key_images.end())
     {
-      LOG_PRINT_L0("Spent money: " << print_money(boost::get<cryptonote::txin_to_key>(in).amount) << ", with tx: " << get_transaction_hash(tx));
+      LOG_PRINT_L0("Spent money: " << print_money(boost::get<cryptonote::txin_to_key>(in).amount) << ", with tx: " << txid);
       tx_money_spent_in_ins += boost::get<cryptonote::txin_to_key>(in).amount;
       transfer_details& td = m_transfers[it->second];
       td.m_spent = true;
       if (0 != m_callback)
-        m_callback->on_money_spent(height, td.m_tx, td.m_internal_output_index, tx);
+        m_callback->on_money_spent(height, td.m_tx, td.m_internal_output_index, tx, txid);
     }
   }
 
@@ -189,7 +194,7 @@ void wallet2::process_new_transaction(const cryptonote::transaction& tx, uint64_
       if (0 < received && null_hash != payment_id)
       {
         payment_details payment;
-        payment.m_tx_hash      = cryptonote::get_transaction_hash(tx);
+        payment.m_tx_hash      = txid;
         payment.m_amount       = received;
         payment.m_block_height = height;
         payment.m_unlock_time  = tx.unlock_time;
@@ -200,11 +205,16 @@ void wallet2::process_new_transaction(const cryptonote::transaction& tx, uint64_
   }
 }
 //----------------------------------------------------------------------------------------------------
-void wallet2::process_unconfirmed(const cryptonote::transaction& tx)
+std::unique_ptr<const cryptonote::transaction> wallet2::process_unconfirmed(const crypto::hash& txid)
 {
-  auto unconf_it = m_unconfirmed_txs.find(get_transaction_hash(tx));
+  std::unique_ptr<const cryptonote::transaction> ret;
+  auto unconf_it = m_unconfirmed_txs.find(txid);
   if(unconf_it != m_unconfirmed_txs.end())
+  {
+    ret.reset(new const cryptonote::transaction(unconf_it->second.m_tx));
     m_unconfirmed_txs.erase(unconf_it);
+  }
+  return ret;
 }
 //----------------------------------------------------------------------------------------------------
 void wallet2::process_new_blockchain_entry(const cryptonote::block& b, cryptonote::block_complete_entry& bche, crypto::hash& bl_id, uint64_t height)
@@ -215,16 +225,18 @@ void wallet2::process_new_blockchain_entry(const cryptonote::block& b, cryptonot
   if(b.timestamp + 60*60*24 > m_account.get_createtime())
   {
     TIME_MEASURE_START(miner_tx_handle_time);
-    process_new_transaction(b.miner_tx, height);
+    process_new_transaction(b.miner_tx,get_transaction_hash(b.miner_tx),height);
     TIME_MEASURE_FINISH(miner_tx_handle_time);
 
     TIME_MEASURE_START(txs_handle_time);
+    size_t i=0;
     BOOST_FOREACH(auto& txblob, bche.txs)
     {
       cryptonote::transaction tx;
       bool r = parse_and_validate_tx_from_blob(txblob, tx);
       THROW_WALLET_EXCEPTION_IF(!r, error::tx_parse_error, txblob);
-      process_new_transaction(tx, height);
+      process_new_transaction(tx,b.tx_hashes[i],height);
+      i++;
     }
     TIME_MEASURE_FINISH(txs_handle_time);
     LOG_PRINT_L2("Processed block: " << bl_id << ", height " << height << ", " <<  miner_tx_handle_time + txs_handle_time << "(" << miner_tx_handle_time << "/" << txs_handle_time <<")ms");

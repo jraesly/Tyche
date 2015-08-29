@@ -83,12 +83,13 @@ uint64_t blockchain_storage::get_current_blockchain_height()
   return m_blocks.size();
 }
 //------------------------------------------------------------------
-bool blockchain_storage::init(const std::string& config_folder)
+bool blockchain_storage::init(const std::string& config_folder, bool pruning_enabled)
 {
   CRITICAL_REGION_LOCAL(m_blockchain_lock);
   m_config_folder = config_folder;
+  m_pruning_enabled = pruning_enabled;
   LOG_PRINT_L0("Loading blockchain...");
-  const std::string filename = m_config_folder + "/" CRYPTONOTE_BLOCKCHAINDATA_FILENAME;
+  const std::string filename = m_config_folder + "/" + (m_pruning_enabled?CRYPTONOTE_BLOCKCHAINDATA_PRUNED_FILENAME:CRYPTONOTE_BLOCKCHAINDATA_FILENAME);
   if(tools::unserialize_obj_from_file(*this, filename))
   {
     // checkpoints
@@ -146,7 +147,7 @@ bool blockchain_storage::store_blockchain()
     LOG_ERROR("Failed to save blockchain data to file: " << temp_filename);
     return false;
   }
-  const std::string filename = m_config_folder + "/" CRYPTONOTE_BLOCKCHAINDATA_FILENAME;
+  const std::string filename = m_config_folder + "/" + (m_pruning_enabled?CRYPTONOTE_BLOCKCHAINDATA_PRUNED_FILENAME:CRYPTONOTE_BLOCKCHAINDATA_FILENAME);
   std::error_code ec = tools::replace_file(temp_filename, filename);
   if (ec)
   {
@@ -907,12 +908,22 @@ bool blockchain_storage::get_blocks(uint64_t start_offset, size_t count, std::li
   return true;
 }
 //------------------------------------------------------------------
-bool blockchain_storage::handle_get_objects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NOTIFY_RESPONSE_GET_OBJECTS::request& rsp)
+bool blockchain_storage::handle_get_objects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NOTIFY_RESPONSE_GET_OBJECTS::request& rsp, bool& pruned)
 {
   CRITICAL_REGION_LOCAL(m_blockchain_lock);
   rsp.current_blockchain_height = get_current_blockchain_height();
   std::list<block> blocks;
   get_blocks(arg.blocks, blocks, rsp.missed_ids);
+  pruned=false;
+  BOOST_FOREACH(const auto& bl, blocks)
+  {
+    if (is_block_pruned(bl))
+    {
+      LOG_PRINT_L2("Peer attempted to retrieve pruned block");
+      pruned=true;
+      return false;
+    }
+  }
 
   BOOST_FOREACH(const auto& bl, blocks)
   {
@@ -1233,6 +1244,49 @@ bool blockchain_storage::have_block(const crypto::hash& id)
     return true;
 
   return false;
+}
+//------------------------------------------------------------------
+bool blockchain_storage::is_block_pruned(const block& bl) 
+{
+  // block is considered pruned if any non-coinbase transactions have no signatures or no inputs
+  for (const auto& txid : bl.tx_hashes)
+  {
+    auto tx_it = m_transactions.find(bl.tx_hashes[0]);
+    CHECK_AND_ASSERT_MES(tx_it != m_transactions.end(),false,"Internal error: block transaction missing txid=" << bl.tx_hashes[0]);
+    const auto& tx = tx_it->second.tx;
+    if (tx.signatures.size() == 0 || tx.vin.size() == 0)
+      return true;
+  }
+  return false;
+}
+bool blockchain_storage::is_block_prunable(const block& bl)
+{
+  // block is considered prunable if is has transactions with signatures or inputs
+  for (const auto& txid : bl.tx_hashes)
+  {
+    auto tx_it = m_transactions.find(txid);
+    CHECK_AND_ASSERT_MES(tx_it != m_transactions.end(),false,"Internal error: block transaction missing txid=" << bl.tx_hashes[0]);
+    const auto& tx = tx_it->second.tx;
+    if (tx.signatures.size() > 0 || tx.vin.size() > 0)
+      return true;
+  }
+  return false;
+}
+//------------------------------------------------------------------
+bool blockchain_storage::prune_stored_block(uint64_t bl_height)
+{
+  // blocks are pruned from storage by removing signatures and transaction inputs
+  for (const auto& txid : m_blocks[bl_height].bl.tx_hashes)
+  {
+    auto tx_it = m_transactions.find(txid);
+    CHECK_AND_ASSERT_MES(tx_it != m_transactions.end(), false, "Internal error: during pruning block " << bl_height << " txid " << txid << " not found");
+    auto& tx = tx_it->second.tx;
+    tx.signatures.clear();
+    tx.signatures.shrink_to_fit();
+    tx.vin.clear();
+    tx.vin.shrink_to_fit();
+  }
+  return true;
 }
 //------------------------------------------------------------------
 bool blockchain_storage::handle_block_to_main_chain(const block& bl, block_verification_context& bvc)
@@ -1685,6 +1739,13 @@ bool blockchain_storage::handle_block_to_main_chain(const block& bl, const crypt
     purge_block_data_from_blockchain(bl, tx_processed_count);
     bvc.m_verifivation_failed = true;
     return false;
+  }
+
+  if (m_pruning_enabled && m_blocks.size() > PRUNING_DEPTH)
+  {
+    size_t h = m_blocks.size()-PRUNING_DEPTH;
+    LOG_PRINT_L1("Pruning block " << h);
+    CHECK_AND_ASSERT_MES2(prune_stored_block(h),"Warning: block pruning faild at height " << m_blocks.size());
   }
 
   m_blocks.push_back(bei);

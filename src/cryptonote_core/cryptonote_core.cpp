@@ -46,6 +46,10 @@ DISABLE_VS_WARNINGS(4355)
 
 namespace cryptonote
 {
+  namespace
+  {
+    const command_line::arg_descriptor<bool>        arg_pruning          = {"pruning", "Enable blockchain pruning"};
+  }
 
   //-----------------------------------------------------------------------------------------------
   core::core(i_cryptonote_protocol* pprotocol):
@@ -71,13 +75,16 @@ namespace cryptonote
     m_blockchain_storage.set_checkpoints(std::move(chk_pts));
   }
   //-----------------------------------------------------------------------------------
-  void core::init_options(boost::program_options::options_description& /*desc*/)
+  void core::init_options(boost::program_options::options_description& desc)
   {
+    command_line::add_arg(desc, arg_pruning);
   }
   //-----------------------------------------------------------------------------------------------
   bool core::handle_command_line(const boost::program_options::variables_map& vm)
   {
     m_config_folder = command_line::get_arg(vm, command_line::arg_data_dir);
+    m_pruning_enabled = command_line::get_arg(vm, arg_pruning);
+
     return true;
   }
   //-----------------------------------------------------------------------------------------------
@@ -123,7 +130,7 @@ namespace cryptonote
     r = m_mempool.init(m_config_folder);
     CHECK_AND_ASSERT_MES(r, false, "Failed to initialize memory pool");
 
-    r = m_blockchain_storage.init(m_config_folder);
+    r = m_blockchain_storage.init(m_config_folder, m_pruning_enabled);
     CHECK_AND_ASSERT_MES(r, false, "Failed to initialize blockchain storage");
 
     r = m_miner.init(vm);
@@ -486,9 +493,9 @@ namespace cryptonote
     return m_blockchain_storage.get_short_chain_history(ids);
   }
   //-----------------------------------------------------------------------------------------------
-  bool core::handle_get_objects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NOTIFY_RESPONSE_GET_OBJECTS::request& rsp, cryptonote_connection_context& context)
+  bool core::handle_get_objects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NOTIFY_RESPONSE_GET_OBJECTS::request& rsp, cryptonote_connection_context& context, bool& pruned)
   {
-    return m_blockchain_storage.handle_get_objects(arg, rsp);
+    return m_blockchain_storage.handle_get_objects(arg, rsp, pruned);
   }
   //-----------------------------------------------------------------------------------------------
   crypto::hash core::get_block_id_by_height(uint64_t height)

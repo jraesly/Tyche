@@ -111,11 +111,14 @@
 #define P2P_IP_FAILS_BEFOR_BLOCK                        10
 #define P2P_IDLE_CONNECTION_KILL_INTERVAL               (5*60) //5 minutes
 
+#define PRUNING_DEPTH                                   10000 // approx 28 days
+
 #define ALLOW_DEBUG_COMMANDS
 
 #define CRYPTONOTE_NAME                         "aeon"
 #define CRYPTONOTE_POOLDATA_FILENAME            "poolstate.bin"
 #define CRYPTONOTE_BLOCKCHAINDATA_FILENAME      "blockchain.bin"
+#define CRYPTONOTE_BLOCKCHAINDATA_PRUNED_FILENAME "blockchain-pruned.bin"
 #define CRYPTONOTE_BLOCKCHAINDATA_TEMP_FILENAME "blockchain.bin.tmp"
 #define P2P_NET_DATA_FILENAME                   "p2pstate.bin"
 #define MINER_CONFIG_FILE_NAME                  "miner_conf.json"

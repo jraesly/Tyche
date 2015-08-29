@@ -615,29 +615,29 @@ void simple_wallet::on_new_block(uint64_t height, const cryptonote::block& block
   m_refresh_progress_reporter.update(height, false);
 }
 //----------------------------------------------------------------------------------------------------
-void simple_wallet::on_money_received(uint64_t height, const cryptonote::transaction& tx, size_t out_index)
+void simple_wallet::on_money_received(uint64_t height, const cryptonote::transaction& tx, const crypto::hash& txid, size_t out_index)
 {
   message_writer(epee::log_space::console_color_green, false) <<
     "Height " << height <<
-    ", transaction " << get_transaction_hash(tx) <<
+    ", transaction " << txid <<
     ", received " << print_money(tx.vout[out_index].amount);
   m_refresh_progress_reporter.update(height, true);
 }
 //----------------------------------------------------------------------------------------------------
-void simple_wallet::on_money_spent(uint64_t height, const cryptonote::transaction& in_tx, size_t out_index, const cryptonote::transaction& spend_tx)
+void simple_wallet::on_money_spent(uint64_t height, const cryptonote::transaction& in_tx, size_t out_index, const cryptonote::transaction& spend_tx, const crypto::hash& txid)
 {
   message_writer(epee::log_space::console_color_magenta, false) <<
     "Height " << height <<
-    ", transaction " << get_transaction_hash(spend_tx) <<
+    ", transaction " << txid <<
     ", spent " << print_money(in_tx.vout[out_index].amount);
   m_refresh_progress_reporter.update(height, true);
 }
 //----------------------------------------------------------------------------------------------------
-void simple_wallet::on_skip_transaction(uint64_t height, const cryptonote::transaction& tx)
+void simple_wallet::on_skip_transaction(uint64_t height, const cryptonote::transaction& tx, const crypto::hash& txid)
 {
   message_writer(epee::log_space::console_color_red, true) <<
     "Height " << height <<
-    ", transaction " << get_transaction_hash(tx) <<
+    ", transaction " << txid <<
     ", unsupported transaction format";
   m_refresh_progress_reporter.update(height, true);
 }

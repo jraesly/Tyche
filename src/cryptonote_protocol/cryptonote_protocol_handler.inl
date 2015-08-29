@@ -297,10 +297,20 @@ namespace cryptonote
   {
     LOG_PRINT_CCONTEXT_L2("NOTIFY_REQUEST_GET_OBJECTS");
     NOTIFY_RESPONSE_GET_OBJECTS::request rsp;
-    if(!m_core.handle_get_objects(arg, rsp, context))
+    bool pruned;
+    if(!m_core.handle_get_objects(arg, rsp, context, pruned))
     {
-      LOG_ERROR_CCONTEXT("failed to handle request NOTIFY_REQUEST_GET_OBJECTS, dropping connection");
+      if (pruned)
+      {
+        LOG_PRINT_CCONTEXT_L0("Unable to supply pruned blocks, dropping connection");
+      }
+      else
+      {
+        LOG_ERROR_CCONTEXT("failed to handle request NOTIFY_REQUEST_GET_OBJECTS, dropping connection");
+      }
       m_p2p->drop_connection(context);
+      m_p2p->add_ip_fail(context.m_remote_ip);
+      return 1;
     }
     LOG_PRINT_CCONTEXT_L2("-->>NOTIFY_RESPONSE_GET_OBJECTS: blocks.size()=" << rsp.blocks.size() << ", txs.size()=" << rsp.txs.size() 
                             << ", rsp.m_current_blockchain_height=" << rsp.current_blockchain_height << ", missed_ids.size()=" << rsp.missed_ids.size());
@@ -408,7 +418,7 @@ namespace cryptonote
         {
           LOG_PRINT_CCONTEXT_L0("Block verification failed, dropping connection");
           m_p2p->drop_connection(context);
-	  m_p2p->add_ip_fail(context.m_remote_ip);
+          m_p2p->add_ip_fail(context.m_remote_ip);
           return 1;
         }
         if(bvc.m_marked_as_orphaned)

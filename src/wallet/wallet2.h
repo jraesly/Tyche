@@ -59,9 +59,9 @@ namespace tools
   {
   public:
     virtual void on_new_block(uint64_t height, const cryptonote::block& block) {}
-    virtual void on_money_received(uint64_t height, const cryptonote::transaction& tx, size_t out_index) {}
-    virtual void on_money_spent(uint64_t height, const cryptonote::transaction& in_tx, size_t out_index, const cryptonote::transaction& spend_tx) {}
-    virtual void on_skip_transaction(uint64_t height, const cryptonote::transaction& tx) {}
+    virtual void on_money_received(uint64_t height, const cryptonote::transaction& tx, const crypto::hash& txid, size_t out_index) {}
+    virtual void on_money_spent(uint64_t height, const cryptonote::transaction& in_tx, size_t out_index, const cryptonote::transaction& spend_tx, const crypto::hash& txid) {}
+    virtual void on_skip_transaction(uint64_t height, const cryptonote::transaction& tx, const crypto::hash& txid) {}
   };
 
   struct tx_dust_policy
@@ -197,7 +197,7 @@ namespace tools
   private:
     bool store_keys(const std::string& keys_file_name, const std::string& password);
     void load_keys(const std::string& keys_file_name, const std::string& password);
-    void process_new_transaction(const cryptonote::transaction& tx, uint64_t height);
+    void process_new_transaction(const cryptonote::transaction& tx, const crypto::hash& txid, uint64_t height);
     void process_new_blockchain_entry(const cryptonote::block& b, cryptonote::block_complete_entry& bche, crypto::hash& bl_id, uint64_t height);
     void detach_blockchain(uint64_t height);
     void get_short_chain_history(std::list<crypto::hash>& ids);
@@ -207,7 +207,7 @@ namespace tools
     void pull_blocks(uint64_t start_height, size_t& blocks_added);
     uint64_t select_transfers(uint64_t needed_money, bool add_dust, uint64_t dust, std::list<transfer_container::iterator>& selected_transfers);
     bool prepare_file_names(const std::string& file_path);
-    void process_unconfirmed(const cryptonote::transaction& tx);
+    std::unique_ptr<const cryptonote::transaction>  process_unconfirmed(const crypto::hash& txid);
     void add_unconfirmed_tx(const cryptonote::transaction& tx, uint64_t change_amount);
 
     cryptonote::account_base m_account;
