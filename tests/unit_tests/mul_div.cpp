@@ -127,7 +127,7 @@ namespace
     ASSERT_EQ(hi, 0);
     ASSERT_EQ(lo, 0);
 
-    // Division by zero is UB, so can be tested correctly
+    // Division by zero is UB, so can not be tested correctly
   }
 
   TEST(div128_32, handles_one)
