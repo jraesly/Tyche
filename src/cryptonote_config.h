@@ -113,7 +113,7 @@
 
 #define ALLOW_DEBUG_COMMANDS
 
-#define CRYPTONOTE_NAME                         "aeon"
+#define CRYPTONOTE_NAME                         "tyche"
 #define CRYPTONOTE_POOLDATA_FILENAME            "poolstate.bin"
 #define CRYPTONOTE_BLOCKCHAINDATA_FILENAME      "blockchain.bin"
 #define CRYPTONOTE_BLOCKCHAINDATA_TEMP_FILENAME "blockchain.bin.tmp"
@@ -122,6 +122,6 @@
 
 #define THREAD_STACK_SIZE                       5 * 1024 * 1024
 
-#define CONFIG_DONATION_ADDRESS                 "WmsSWgtT1JPg5e3cK41hKXSHVpKW7e47bjgiKmWZkYrhSS5LhRemNyqayaSBtAQ6517eo5PtH9wxHVmM78JDZSUu2W8PqRiNs"
+#define CONFIG_DONATION_ADDRESS                 "1BgW4Bmezd431dJLwrKQhuUYQPcg3sdZJ2"
 
 #define DEFAULT_TX_SPENDABLE_AGE                10
